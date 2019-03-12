@@ -23,6 +23,77 @@ Or install it yourself as:
 ## Usage
 
 ```ruby
+class Notification < ActiveRecord::Base
+  belongs_to :user
+  belongs_to :notifiable, polymorphic: true
+
+  delegate :notification_config, to: :notifiable
+
+  def title
+    notifiable.context_eval(notification_config[:title]) || raise
+  end
+
+  def message
+    notifiable.context_eval(notification_config[:message])
+  end
+end
+
+module Notifiable
+  extend ActiveSupport::Concern
+
+  included do
+    config_accessor :notification_config, instance_writer: false # ActiveSupport::Configurable
+
+    has_one :notification, as: :notifiable, dependent: :destroy, class_name: '::Notification'
+
+    after_create do
+      self.create_notification!(user: context_eval(notification_config[:send_to]))
+    end
+  end
+end
+
+class Nice < ActiveRecord::Base
+  include Notifiable
+
+  self.notification_config = {
+    title: 'Nice!',
+    send_to: -> { article.user }
+  }
+
+  belongs_to :article
+end
+
+class Comment < ActiveRecord::Base
+  include Notifiable
+
+  self.notification_config = {
+    title: -> { "#{body[0..20]}..." },
+    message: :body,
+    send_to: -> { article.user }
+  }
+
+  belongs_to :article
+end
+```
+
+```sample.html.erb
+<ul>
+  <% @notifications.each do |notification| %>
+    <li>
+      <h3><%= notification.title %></h3>
+
+      <% if notification.message.present? %>
+        <p><%= notification.message %></p>
+      <% end %>
+    </li>
+  <% end %>
+</ul>
+```
+
+
+### Detail
+
+```ruby
 class User
   attr_accessor :name
 
@@ -58,6 +129,8 @@ user.context_eval('Hey john') #=> Hey John
 # Nil
 user.context_eval(nil) #=> nil
 ```
+
+##
 
 ## Contributing
 
